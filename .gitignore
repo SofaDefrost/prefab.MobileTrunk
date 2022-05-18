@@ -4,3 +4,8 @@
 *py3.log
 *py3scn.log
 .idea/
+build/
+install/
+log/
+*.view
+*.json
