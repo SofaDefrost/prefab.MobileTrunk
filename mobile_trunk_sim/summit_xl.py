@@ -238,7 +238,7 @@ def createScene(rootNode):
 
     #scene.Modelling.addObject('EulerImplicitSolver',rayleighStiffness=0.01, rayleighMass=0, vdamping=0.1)
     #solver = scene.Modelling.addObject('SparseLDLSolver',name = 'SparseLDLSolver',template="CompressedRowSparseMatrixMat3x3d")
-    scene.Simulation.addObject('GenericConstraintCorrection' , solverName='LinearSolver', ODESolverName='GenericConstraintSolver')
+    scene.Simulation.addObject('GenericConstraintCorrection', solverName='LinearSolver', ODESolverName='GenericConstraintSolver')
 
     scene.Simulation.TimeIntegrationSchema.vdamping.value = 0.1
     scene.Simulation.TimeIntegrationSchema.rayleighStiffness = 0.01
@@ -273,7 +273,7 @@ def createScene(rootNode):
     parameters, cables = createEchelon(arm,connection,0,[0., 0.26*1000, 0.32*1000],[-90,-90,0])
 
     if typeControl == 'displacement':
-        arm.addObject(CableController(cables, name = 'Cablecontroller'))
-    elif typeControl == 'force' :
-        arm.addObject(ForceController(cables,dt,name = 'ForceController'))
+        arm.addObject(CableController(cables, name= 'Cablecontroller'))
+    elif typeControl == 'force':
+        arm.addObject(ForceController(cables, dt, name = 'ForceController'))
     return rootNode

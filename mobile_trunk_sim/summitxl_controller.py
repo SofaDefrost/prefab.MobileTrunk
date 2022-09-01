@@ -25,7 +25,7 @@ CTRL-C to quit
 
 moveBindings = {
     'i': (1, 0, 0, 0),
-    'p': (1, 0, 0, -1),
+    'p': (-1, 0, 0, -1),
     'j': (0, 0, 0, 1),
     'l': (0, 0, 0, -1),
     'u': (1, 0, 0, 1),
@@ -56,8 +56,8 @@ class SummitxlController(Sofa.Core.Controller):
         self.dt = 0
 
         self.status = 0.
-        self.speed = 0.1
-        self.turn = 0.1
+        self.speed = 0.01
+        self.turn = 2
         self.x = 0.0
         self.y = 0.0
         self.z = 0.0
@@ -68,8 +68,8 @@ class SummitxlController(Sofa.Core.Controller):
     def move(self, fwd, angle):
         """Move the robot using the forward speed and angular speed)"""
         robot = RigidDof(self.robot.Chassis.Base.position)
-        robot.translate(robot.forward * fwd)
-        robot.rotateAround([0, 1, 0], angle)
+        # robot.translate(robot.forward * fwd)
+        # robot.rotateAround([0, 1, 0], angle)
 
         with self.robot.Chassis.WheelsMotors.angles.rest_position.writeable() as angles:
             #Make the wheel turn according to forward speed
@@ -93,12 +93,11 @@ class SummitxlController(Sofa.Core.Controller):
     def onKeypressedEvent(self, event):
         key = event['key']
         key = key.lower()
-        self.speed = 1e-5  # self.speed + speedBindings[key][0]
         if key in moveBindings.keys():
             self.x = moveBindings[key][0]
             self.th = moveBindings[key][3]
         elif  key in speedBindings.keys():
-            self.speed = 0.001  # self.speed + speedBindings[key][0]
+            self.speed = self.speed + speedBindings[key][0]
             self.turn = self.speed + speedBindings[key][1]
             print(vels(self.speed, self.turn))
             if (self.status == 14):
@@ -107,7 +106,7 @@ class SummitxlController(Sofa.Core.Controller):
         else:
             self.x = 0.0
             self.th = 0.0
-        self.robot.simrobot_linear_vel[0] =  self.x * self.speed * self.dt*1000 # A corriger
+        self.robot.simrobot_linear_vel[0] = self.x * self.speed * self.dt
         self.robot.simrobot_angular_vel[2] = self.th * self.turn * self.dt
 
 
