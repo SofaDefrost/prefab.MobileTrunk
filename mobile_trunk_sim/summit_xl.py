@@ -36,10 +36,11 @@ def Chassis():
     #########################################
 
     self = Sofa.Core.Node("Chassis")
-    self.addObject("MechanicalObject", name="position", template="Rigid3d", position=[[0,0,0,0,0,0,1]])
-    self.addObject('UniformMass', name="vertexMass", vertexMass=[totalMass, volume, inertiaMatrix[:]])
 
-    self.addObject('UncoupledConstraintCorrection')
+    base = self.addChild('Base')
+    base.addObject("MechanicalObject", name="position", template="Rigid3d", position=[[0,0,0,0,0,0,1]])
+    base.addObject('UniformMass', name="vertexMass", vertexMass=[totalMass, volume, inertiaMatrix[:]])
+    base.addObject('UncoupledConstraintCorrection')
 
     #########################################
     #creation of the articulated chain of wheels, sensors
@@ -49,9 +50,10 @@ def Chassis():
     chain = self.addChild("WheelsMotors")
     chain.addObject('MechanicalObject', name="angles", template="Vec1d", position=[0,0,0,0,0])
     chain.addObject('UniformMass', name="vertexMass", vertexMass=[totalMass, volume, inertiaMatrix[:]])
+    chain.addObject('RestShapeSpringsForceField', stiffness=1e12)
 
     #capteur
-    sensor =  self.addChild("FixedSensor")
+    sensor = self.addChild("FixedSensor")
     sensor.addObject('MechanicalObject', name="angles", template="Vec1d", position=[0,0,0])
     sensor.addObject('UniformMass', name="vertexMass", vertexMass=[totalMass, volume, inertiaMatrix[:]])
 
@@ -80,7 +82,8 @@ def Chassis():
     #the articulated chain Needs a root one (in addition to the four wheels)
     ##############################
 
-    wheels = self.addChild("Wheels")
+    wheels = base.addChild("Wheels")
+    chain.addChild(wheels)
 
     wheels.addObject("MechanicalObject", name="position", template="Rigid3d",
                           position=[[0,0,0,0,0,0,1], [0,0,0,0,0,0,1], [0,0,0,0,0,0,1], [0,0,0,0,0,0,1], [0,0,0,0,0,0,1]],
@@ -89,14 +92,16 @@ def Chassis():
 
     wheels.addObject('ArticulatedSystemMapping',
                           input1=chain.angles.getLinkPath(),
-                          input2=self.position.getLinkPath(),
+                          input2=base.position.getLinkPath(),
                           output=wheels.position.getLinkPath())
 
     #########################################
     #  add sensors
     #########################################
 
-    sensors = self.addChild("Sensors")
+    sensors = base.addChild("Sensors")
+    sensor.addChild(sensors)
+
     sensors.addObject("MechanicalObject", name = "position", template="Rigid3d",
                     position=[[0,0,0,0,0,0,1], [0,0,0,0,0,0,1], [0,0,0,0,0,0,1]],
                      showObject=True)
@@ -104,7 +109,7 @@ def Chassis():
 
     sensors.addObject('ArticulatedSystemMapping',
                         input1=sensor.angles.getLinkPath(),
-                        input2=self.position.getLinkPath(),
+                        input2=base.position.getLinkPath(),
                         output=sensors.position.getLinkPath())
 
     #########################################
@@ -123,7 +128,7 @@ def Chassis():
         part.addObject('MeshSTLLoader', name='loader', filename=filepath, rotation=[-90,-90,0],scale3d = [1000,1000,1000])
         part.addObject('MeshTopology', src='@loader')
         part.addObject('OglModel', name="renderer", src='@loader', color=color)
-        part.addObject('RigidMapping', input=self.Wheels.position.getLinkPath(), index=0)
+        part.addObject('RigidMapping', input=wheels.position.getLinkPath(), index=0)
 
     ## Wheels
     visual = wheels.addChild("VisualModel")
@@ -132,7 +137,7 @@ def Chassis():
     for i in range(4):
         wheel = visual.addChild("Wheel{0}".format(i))
         wheel.addObject("OglModel", src=visual.geometry.getLinkPath(), color=[0.2,0.2,0.2,1.0])
-        wheel.addObject("RigidMapping", input=self.Wheels.position.getLinkPath(), index=i+1)
+        wheel.addObject("RigidMapping", input=wheels.position.getLinkPath(), index=i+1)
 
     ## Sensors
     visual = sensors.addChild("VisualModel")
@@ -147,7 +152,7 @@ def Chassis():
         visual_body.addObject('MeshSTLLoader', name=name+'_loader', filename=filepath, rotation=[0,90,90],scale3d = [1000,1000,1000])
         visual_body.addObject('MeshTopology', src='@'+name+'_loader')
         visual_body.addObject('OglModel', name=name+"_renderer", src='@'+name+'_loader', color=[0.2,0.2,0.2,1.0])
-        visual_body.addObject('RigidMapping', input=self.Sensors.position.getLinkPath(),index=index)
+        visual_body.addObject('RigidMapping', input=sensors.position.getLinkPath(),index=index)
 
     #########################################
     # collision models
@@ -162,17 +167,17 @@ def Chassis():
         wheel_collision.addObject('TriangleCollisionModel', group=0)
         wheel_collision.addObject('LineCollisionModel',group=0)
         wheel_collision.addObject('PointCollisionModel', group=0)
-        wheel_collision.addObject('RigidMapping', input=self.Wheels.position.getLinkPath(), index=i+1)
+        wheel_collision.addObject('RigidMapping', input=wheels.position.getLinkPath(), index=i+1)
 
     #########################################
     # add Trunk
     #########################################
 
-    trunk = self.addChild("Trunk")
+    trunk = base.addChild("Trunk")
     trunk.addObject("MechanicalObject", name = "position", template="Rigid3d",
                     position=trunkPosition,
-                     showObject=True,showObjectScale = 30)    
-    trunk.addObject('RigidRigidMapping',name='mapping', input=self.position.getLinkPath(), index=0)
+                     showObject=True,showObjectScale = 30)
+    trunk.addObject('RigidRigidMapping',name='mapping', input=base.position.getLinkPath(), index=0)
 
     return self
 
@@ -225,10 +230,10 @@ def createScene(rootNode):
 
     scene = Scene(rootNode, iterative=False)
     scene.addMainHeader()
-    scene.addContact(alarmDistance=0.2*1000, contactDistance=0.005*1000)
+    scene.addContact(alarmDistance=0.2*1000, contactDistance=0.005*1000, frictionCoef=0.8)
     scene.VisualStyle.displayFlags = 'hideBehaviorModels showForceFields showCollisionModels showInteractionForceFields'
     scene.addObject('DefaultVisualManagerLoop')
-    scene.dt = 0.001
+    scene.dt = 0.01
     scene.gravity = [0., -9810., 0.]
 
     #scene.Modelling.addObject('EulerImplicitSolver',rayleighStiffness=0.01, rayleighMass=0, vdamping=0.1)
@@ -264,7 +269,7 @@ def createScene(rootNode):
     ######################################## 
 
     arm = rootNode.Modelling.SummitXL.Chassis.addChild('Arm')
-    connection = rootNode.Modelling.SummitXL.Chassis.Trunk.position
+    connection = rootNode.Modelling.SummitXL.Chassis.Base.Trunk.position
     parameters, cables = createEchelon(arm,connection,0,[0., 0.26*1000, 0.32*1000],[-90,-90,0])
 
     if typeControl == 'displacement':
