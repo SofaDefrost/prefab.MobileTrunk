@@ -52,6 +52,7 @@ class SummitxlController(Sofa.Core.Controller):
     def __init__(self, *args, **kwargs):
         Sofa.Core.Controller.__init__(self, *args, **kwargs)
         self.robot = kwargs["robot"]
+        self.scale=kwargs["scale"]
         self.wheel_ray = 0.0015
         self.dt = 0
 
@@ -88,18 +89,6 @@ class SummitxlController(Sofa.Core.Controller):
         """
         self.dt = event['dt']
         self.move(self.robot.simrobot_linear_vel[0] , self.robot.simrobot_angular_vel[2])
-        print("position x = ",self.robot.Chassis.position.position.value[0][0])
-        print("position y = ",self.robot.Chassis.position.position.value[0][1])
-        print("position z = ",self.robot.Chassis.position.position.value[0][2])
-        print("\n")
-        print("orientation x = ",self.robot.Chassis.position.position.value[0][3])
-        print("orientation y = ",self.robot.Chassis.position.position.value[0][4])
-        print("orientation z = ",self.robot.Chassis.position.position.value[0][5])
-        print("orientation w = ",self.robot.Chassis.position.position.value[0][6])
-
-
-
-
 
 
     def onKeypressedEvent(self, event):
@@ -119,7 +108,7 @@ class SummitxlController(Sofa.Core.Controller):
         else:
             self.x = 0.0
             self.th = 0.0
-        self.robot.simrobot_linear_vel[0] =  self.x * self.speed * self.dt
+        self.robot.simrobot_linear_vel[0] =  self.x * self.speed * self.dt*self.scale# A corriger
         self.robot.simrobot_angular_vel[2] = self.th * self.turn * self.dt
 
 
