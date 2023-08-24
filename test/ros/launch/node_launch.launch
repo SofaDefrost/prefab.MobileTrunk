@@ -1,0 +1,36 @@
+# File: node_launch.yaml
+launch:
+# args
+- arg:
+    name: "vitesse_angulaire"
+    default: "0.3"
+- arg:
+    name: "vitesse_lineaire"
+    default: "0.3"
+
+
+# Nodes
+- node:
+    pkg: "somorob"
+    exec: "summit_xl"
+    name: "summit_xl"
+    param:
+    -
+      name: "vitesse_angulaire"
+      value: "$(var vitesse_angulaire)"
+    -
+      name: "vitesse_lineaire"
+      value: "$(var vitesse_lineaire)"
+
+
+- node:
+    pkg: "bag_recorder_nodes"
+    exec: "bag_recorder"
+    name: "bag_recorder"
+    param:
+    -
+      name: "vitesse_angulaire"
+      value: "$(var vitesse_angulaire)"
+    -
+      name: "vitesse_lineaire"
+      value: "$(var vitesse_lineaire)"

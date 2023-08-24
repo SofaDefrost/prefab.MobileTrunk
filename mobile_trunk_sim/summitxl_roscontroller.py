@@ -1,12 +1,18 @@
 # coding: utf8
 #!/usr/bin/env python3
+import numpy as np
 import Sofa
-from splib3.numerics import RigidDof
 from sensor_msgs.msg import Imu
-from geometry_msgs.msg import Twist,Point, Pose, Quaternion, Twist, Vector3
+from geometry_msgs.msg import Twist
+from wheels_angles_compute import twistToWheelsAngularSpeed, move, updateOdometry
 from nav_msgs.msg import Odometry
+import sensor_msgs.msg
 import time
 from math import *
+import queue
+import json
+
+q = queue.Queue()
 
 def send(data):
     """This is a message to hold data from an IMU (Inertial Measurement Unit)
@@ -73,7 +79,7 @@ def vel_recv(data, datafield):
                                 velocity
     """
     datafield[0].value = [data.linear.x ,data.linear.y, data.linear.z]
-    datafield[1].value = [data.angular.x ,data.angular.z, data.angular.y]
+    datafield[1].value = [data.angular.x ,data.angular.y, data.angular.z]
 
 def odom_recv(data, datafield):
     """ Function called by the RosReceiver. It
@@ -100,7 +106,39 @@ def odom_recv(data, datafield):
 
     datafield[2].value = [data.pose.pose.orientation.x,data.pose.pose.orientation.z,
                           data.pose.pose.orientation.y,data.pose.pose.orientation.w ]
+    datafield[3].value = [data.twist.twist.linear.x, 0 ,0]
+    datafield[4].value = [0, 0, data.twist.twist.angular.z]
 
+
+def position_and_orientation_send(data):
+    msg = Odometry()
+    #odom position x y z
+    msg.pose.pose.position.x = data[0].value[2]/1000
+    msg.pose.pose.position.z = data[0].value[1]/1000
+    msg.pose.pose.position.y = data[0].value[0]/1000
+
+    #odom orientation x y z w
+    msg.pose.pose.orientation.x = data[1].value[0]
+    msg.pose.pose.orientation.z = data[1].value[1]
+    msg.pose.pose.orientation.y = data[1].value[2]
+    msg.pose.pose.orientation.w = data[1].value[3]
+    #print(msg.pose.pose.position)
+    return msg
+
+def digital_twin_jointstate_pub(data):
+
+    joint_state= sensor_msgs.msg.JointState() 
+    joint_state.name = ["digital_twin_front_left_wheel_joint", "digital_twin_front_right_wheel_joint",
+                        "digital_twin_back_left_wheel_joint", "digital_twin_back_right_wheel_joint"]
+    joint_state.effort = [0., 0., 0., 0.]
+    joint_state.position = [0., 0., 0., 0.]
+
+    joint_state.velocity = [data.value[0], data.value[1], data.value[2], data.value[3]]
+
+    return joint_state
+
+def summit_xl_jointstate_recv(data, datafield):
+    datafield.value = [data.velocity[0], data.velocity[1], data.velocity[2], data.velocity[3]]
 
 def odom_send(data):
     """ Returns the odometry of
@@ -139,6 +177,8 @@ def odom_send(data):
     msg.twist.twist.angular.z = data[4].value[2]
     return msg
 
+#digital_twin_jointstate_file_record = open("/home/fabrice/Documents/CRIStAL/prefab.MobileTrunk/test/join_states_data_processing/record_join_states/read_digital_twin_joint_states.txt", "w")
+#summit_xl_jointstate_file_record = open('/home/fabrice/Documents/CRIStAL/prefab.MobileTrunk/test/join_states_data_processing/record_join_states/read_summit_xl_joint_states.txt', 'w')
 
 class SummitxlROSController(Sofa.Core.Controller):
     """A Simple keyboard controller for the SummitXL
@@ -147,28 +187,20 @@ class SummitxlROSController(Sofa.Core.Controller):
     def __init__(self, *args, **kwargs):
         Sofa.Core.Controller.__init__(self, *args, **kwargs)
         self.robot = kwargs["robot"]
-        self.wheel_ray = 0.10
+        self.robotToSim = kwargs["robotToSim"]
         self.flag = True
-        self.robot.robot_linear_x = 0
-        self.robot.robot_angular_z  = 0
         self.time_now = None
-
-    def move(self, fwd, angle):
-        """Move the robot using the forward speed and angular speed)"""
-        robot = RigidDof(self.robot.Chassis.position)
-        robot.translate(robot.forward * fwd)
-        robot.rotateAround([0, 1, 0], angle)
-        with self.robot.Chassis.WheelsMotors.angles.position.writeable() as angles:
-            #Make the wheel turn according to forward speed
-            # TODO: All the value are random, need to be really calculated
-            angles += (fwd/self.wheel_ray)
-
-            #Make the wheel turn in reverse mode according to turning speed
-            # TODO: the value are random, need to be really calculated
-            angles[0] += (angle)
-            angles[2] += (angle)
-            angles[1] -= (angle)
-            angles[3] -= (angle)
+        self.time_s = time.time()
+        # self.positon_inital=[self.robot.Chassis.Base.position.position.value[0][0],
+        #                     self.robot.Chassis.Base.position.position.value[0][1],
+        #                     self.robot.Chassis.Base.position.position.value[0][2]]
+        self.t = 0
+        self.sofa_time = 0
+        self.robot_time = 0
+        self.wheels_angular_speed = None
+        self.item = [0, 0, 0]
+        # self.angular_speed = 0
+        # self.linear_speed = 0
 
     def init_pose(self):
         """
@@ -177,8 +209,8 @@ class SummitxlROSController(Sofa.Core.Controller):
         """
 
         if self.flag:
-            print("init summit_xl pose")
-            with self.robot.Chassis.position.position.writeable() as summit_pose:
+            
+            with self.robot.Chassis.Base.position.position.writeable() as summit_pose:
                 #position x, y z
 
                 summit_pose[0][0] = self.robot.reel_position[0]
@@ -190,46 +222,87 @@ class SummitxlROSController(Sofa.Core.Controller):
                 summit_pose[0][4] = self.robot.reel_orientation[1]
                 summit_pose[0][5] = self.robot.reel_orientation[2]
                 summit_pose[0][6] = self.robot.reel_orientation[3]
+
+                self.t = 0
+                self.sofa_time = 0
+                self.robot_time = 0
             self.flag = False
+            print("init summit_xl pose")
 
 
     def onAnimateBeginEvent(self, event):
         """ At each time step we move the robot by the given
             forward_speed and angular_speed)
         """
-        # time init
-        if self.time_now is not None:
-            dt = float(self.robot.timestamp.value[0])+float(self.robot.timestamp.value[1])/1000000000  - self.time_now
-            self.time_now = float(self.robot.timestamp.value[0])+float(self.robot.timestamp.value[1])/1000000000
-        else:
-            dt=0
-            self.time_now = float(self.robot.timestamp.value[0])+float(self.robot.timestamp.value[1])/1000000000
+        dt = event['dt']
+        if self.robotToSim:
+            if self.time_now is not None and not self.flag:
+                self.t = float(self.robot.timestamp.value[0])+float(self.robot.timestamp.value[1])/1000000000  - self.time_now
+                self.robot_time +=self.t
+                self.time_now = float(self.robot.timestamp.value[0])+float(self.robot.timestamp.value[1])/1000000000
+                self.sofa_time +=dt
+                q.put([self.robot_time, self.robot.robot_angular_vel[2], self.robot.robot_linear_vel[0]])
+            else:
+                self.t=0
+                self.time_now = float(self.robot.timestamp.value[0])+float(self.robot.timestamp.value[1])/1000000000
 
-        self.robot.robot_linear_x = self.robot.robot_linear_vel[0]  * dt
-        self.robot.robot_angular_z = self.robot.robot_angular_vel[2] * dt
+        if not self.robotToSim:
+            self.time_s = time.time()
+            if self.time_now is not None:
+                dt = self.time_s - self.time_now
+                self.time_now = time.time()
+            else:
+                dt = 0
+                self.time_now = time.time()
+            robot_time = self.time_s
+            with self.robot.timestamp.writeable() as t:
+                t[0] = int(robot_time)
+                t[1] = 0
+            self.wheels_angular_speed = twistToWheelsAngularSpeed(self.robot.robot_angular_vel[2],
+                                                            self.robot.robot_linear_vel[0])
+            move(self.robot.Chassis.WheelsMotors.angles.rest_position, self.wheels_angular_speed, dt)
 
-        with self.robot.Chassis.Debug.position.position.writeable() as debug_pose:
-            for i in range(0, 3):
-                debug_pose[0][i] =  self.robot.Chassis.position.position.value[0][i]
 
-            for i in range(0, 4):
-                debug_pose[0][3+i] = self.robot.reel_orientation[i]
-
-        with self.robot.Chassis.Reel_robot.position.position.writeable() as robot_pose:
-            for i in range(0,3):
-                robot_pose[0][i] =  self.robot.reel_position[i]
+        # if self.robot.robot_angular_vel[2] ==0 and self.robot.robot_linear_vel[0] ==0 and self.robot_time > 10:
+        #     summit_xl_jointstate_file_record.close()
+        # else:
+        #     summit_xl_joint_state0 = json.dumps(self.robot.summit_xl_joints_states_vel[0])
+        #     summit_xl_joint_state1 = json.dumps(self.robot.summit_xl_joints_states_vel[1])
+        #     summit_xl_joint_state2 = json.dumps(self.robot.summit_xl_joints_states_vel[2])
+        #     summit_xl_joint_state3 = json.dumps(self.robot.summit_xl_joints_states_vel[3])
+        #     summit_xl_jointstate_file_record.write(str(self.robot_time) + " , " + str([summit_xl_joint_state0 , summit_xl_joint_state1, summit_xl_joint_state2,
+        #                                                                         summit_xl_joint_state3]) + "\n")
+        if not self.flag and not q.empty():
+            print(q.queue[0][0] - self.sofa_time)
+            if q.queue[0][0] - self.sofa_time <= 0.001:
+                # print("==== d queue ======")
+                # print(q.queue[0][0], "   ", self.sofa_time, "  " ,q.queue[0][0] - self.sofa_time)
+                # print("self.robot.robot_angular_vel[2] = ", q.queue[0][1], "self.robot.robot_linear_vel[0]= ", q.queue[0][2], " delta = ",
+                #                                                           q.queue[0][0]-self.item[0])
+                self.item = q.get()
+                self.wheels_angular_speed = twistToWheelsAngularSpeed(self.item[1],
+                                                            self.item[2])
+        if(self.wheels_angular_speed is not None):
+            # print(" move  : ", self.wheels_angular_speed , " dt = ", dt)
+            move(self.robot.Chassis.WheelsMotors.angles.rest_position, self.wheels_angular_speed, dt)
 
             for i in range(0,4):
-                robot_pose[0][3+i] = self.robot.reel_orientation[i]
+                self.robot.sim_orientation[i] = self.robot.Chassis.Base.position.position.value[0][3+i]
+                self.robot.digital_twin_joints_states_vel[i] = self.wheels_angular_speed[i]
 
-        for i in range(0,4):
-            self.robot.sim_orientation[i] = self.robot.Chassis.position.position.value[0][3+i]
+            for i in range(0,3):
+                self.robot.sim_position[i] = self.robot.Chassis.Base.position.position.value[0][i]
 
-        for i in range(0,3):
-            self.robot.sim_position[i] = self.robot.Chassis.position.position.value[0][i]
+            # digital_twin_joint_state0 = json.dumps(self.wheels_angular_speed[0])
+            # digital_twin_joint_state1 = json.dumps(self.wheels_angular_speed[1])
+            # digital_twin_joint_state2 = json.dumps(self.wheels_angular_speed[2])
+            # digital_twin_joint_state3 = json.dumps(self.wheels_angular_speed[3])
 
-        self.move(self.robot.robot_linear_x, self.robot.robot_angular_z)
+            # digital_twin_jointstate_file_record.write(str(self.sofa_time) + " , " + str([digital_twin_joint_state0, digital_twin_joint_state1 , digital_twin_joint_state2,
+            #                                                                               digital_twin_joint_state3]) + "\n")
 
+            #if q.empty():
+            #    digital_twin_jointstate_file_record.close()
         # Wait to start receiving data from ROS to initialize the position
         # of the robot in the simulation with the position of the real robot
         if self.robot.reel_position[0] != 0:
